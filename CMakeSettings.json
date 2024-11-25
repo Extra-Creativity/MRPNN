@@ -1,0 +1,45 @@
+﻿{
+  "configurations": [
+    {
+      "name": "x64-Debug",
+      "generator": "Ninja",
+      "configurationType": "Debug",
+      "inheritEnvironments": [ "msvc_x64_x64" ],
+      "buildRoot": "${projectDir}\\out\\build\\${name}",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "variables": [
+        {
+          "name": "GUI",
+          "value": "True",
+          "type": "BOOL"
+        },
+        {
+          "name": "Debug",
+          "value": "True",
+          "type": "BOOL"
+        }
+      ],
+      "cmakeCommandArgs": "-DCUDAToolkit_ROOT=D:/Softwares/NVIDIA/CUDA/v11.8"
+    },
+    {
+      "name": "x64-Release",
+      "generator": "Ninja",
+      "configurationType": "RelWithDebInfo",
+      "buildRoot": "${projectDir}\\out\\build\\${name}",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "cmakeCommandArgs": "-DCUDAToolkit_ROOT=D:/Softwares/NVIDIA/CUDA/v11.8",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "inheritEnvironments": [ "msvc_x64_x64" ],
+      "variables": [
+        {
+          "name": "GUI",
+          "value": "True",
+          "type": "BOOL"
+        }
+      ]
+    }
+  ]
+}

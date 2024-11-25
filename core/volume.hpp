@@ -79,7 +79,7 @@ class VolumeRender {
 
 public:
 	enum RenderType {
-		PT, RPNN, MRPNN
+		PT, RPNN, MRPNN, SHApprox
 	};
 
 	Image_host hdri_img;

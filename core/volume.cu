@@ -12,7 +12,7 @@
 #include <sstream>
 using namespace std;
 
-#define CheckError { auto error = cudaGetLastError(); if (error != 0) cout << cudaGetErrorString(error); }
+#define CheckError { auto error = cudaGetLastError(); if (error != 0) cerr << __LINE__ << " " << __FILE__ << " " << cudaGetErrorName(error) << " " << cudaGetErrorString(error) << "\n"; }
 
 template<int type>
 __global__ void CalculateRadianceMulti(volatile int* record, float3* result, float3* ori, float3* dir, float3 lightDir, float3 lightColor = { 1, 1, 1 }, float alpha = 1, int multiScatter = 1, float g = 0, int sampleNum = 1) {
@@ -74,8 +74,11 @@ __global__ void RenderCamera(float3* target, Histogram* histo_buffer, int2 size,
     dir = normalize(dir);
 
     float4 res_dis;
-    if (predict)
-        res_dis = NNPredict<type>(ori, dir, lightDir, lightColor, alpha, g);
+    if (predict) {
+        res_dis = NNPredict<type>(idx, ori, dir, lightDir, lightColor, alpha, g);
+        //if (type == Type::SHApprox && idx == 90184)
+        //    printf("%d: %f, %f, %f\n", idx, res_dis.x, res_dis.y, res_dis.z);
+    }
     else
         res_dis = CalculateRadiance(ori, dir, lightDir, lightColor, alpha, multiScatter, g, 1);
     float3 res = make_float3(res_dis);
@@ -83,7 +86,6 @@ __global__ void RenderCamera(float3* target, Histogram* histo_buffer, int2 size,
     float dis = max(0.001f, res_dis.w < 0 ? 10.0f : res_dis.w);
 
     res = max(float3{ 0 }, res);
-
 
     // show Lut
     {
@@ -123,7 +125,8 @@ __global__ void RenderCamera(float3* target, Histogram* histo_buffer, int2 size,
         histo_buffer[idx].x2 = lerp(histo_buffer[idx].x2, l * l, 1.0f / (1 + fNum));
     }
     else {
-
+        target[idx] = res;
+        return;
         int lidx;
         {   // reprojection
             float3 motion_pos = ori + dir * dis;
@@ -449,8 +452,10 @@ vector<float3> VolumeRender::Render(int2 size, float3 ori, float3 up, float3 rig
             RenderCamera<false><<<dimGrid, dimBlock>>>(results, size, ori, up, right, lightDir, lightColor, alpha, multiScatter, g);
         else if (rt == RenderType::RPNN)
             RenderCamera<true, Type::RPNN><<<dimGrid, dimBlock>>>(results, size, ori, up, right, lightDir, lightColor, alpha, multiScatter, g);
-        else 
+        else if (rt == RenderType::RPNN)
             RenderCamera<true, Type::MRPNN><<<dimGrid, dimBlock>>>(results, size, ori, up, right, lightDir, lightColor, alpha, multiScatter, g);
+        else
+            RenderCamera<true, Type::SHApprox><<<dimGrid, dimBlock>>>(results, size, ori, up, right, lightDir, lightColor, alpha, multiScatter, g);
 
         cudaDeviceSynchronize();
 
@@ -520,8 +525,10 @@ void VolumeRender::Render(float3* target, Histogram* histo_buffer, unsigned int*
         RenderCamera<false><<<dimGrid, dimBlock>>>(target, histo_buffer, size, ori, up, right, lightDir, lightColor, alpha, multiScatter, g);
     else if (rt == RenderType::RPNN)
         RenderCamera<true, Type::RPNN><<<dimGrid, dimBlock>>>(target, histo_buffer, size, ori, up, right, lightDir, lightColor, alpha, multiScatter, g);
-    else
+    else if (rt == RenderType::MRPNN)
         RenderCamera<true, Type::MRPNN><<<dimGrid, dimBlock>>>(target, histo_buffer, size, ori, up, right, lightDir, lightColor, alpha, multiScatter, g);
+    else
+        RenderCamera<true, Type::SHApprox><<<dimGrid, dimBlock>>>(target, histo_buffer, size, ori, up, right, lightDir, lightColor, alpha, multiScatter, g);
 
     if (!predict) {
         if (denoise)
@@ -1445,3 +1452,6 @@ InitWeight::InitWeight() {
     //SetWeights();
     //CheckError;
 }
+
+template __device__ float3 RadiancePredict<8>(float3 ori, float3 dir, float3 lightDir, float3 lightColor, float alpha, float g);
+template __device__ float3 RadiancePredict<1>(float3 ori, float3 dir, float3 lightDir, float3 lightColor, float alpha, float g);

@@ -58,13 +58,27 @@ static GLFWwindow* init_opengl(int reso, string name)
     return window;
 }
 
+extern "C" {
+    _declspec(dllexport) DWORD NvOptimusEnablement = 1;
+}
+
 static void init_cuda()
 {
+    cudaFree(0);
+    int num;
+    auto err = cudaGetDeviceCount(&num);
+    fprintf(stderr, "%d\n", num);
+    if (err != 0) {
+        fprintf(stderr, cudaGetErrorString(err));
+    }
+    fprintf(stderr, "%s %s", glGetString(GL_VENDOR), glGetString(GL_RENDERER));
+
     int cuda_devices[1];
     unsigned int num_cuda_devices;
-    cudaGLGetDevices(&num_cuda_devices, cuda_devices, 1, cudaGLDeviceListAll);
-    if (num_cuda_devices == 0) {
-        fprintf(stderr, "Could not determine CUDA device for current OpenGL context\n.");
+    err = cudaGLGetDevices(&num_cuda_devices, cuda_devices, 1, cudaGLDeviceListAll);
+    if (err != 0) {
+        fprintf(stderr, cudaGetErrorString(err));
+        fprintf(stderr, "\nCould not determine CUDA device for current OpenGL context\n.");
         exit(EXIT_FAILURE);
     }
     cudaSetDevice(cuda_devices[0]);
@@ -317,6 +331,9 @@ public:
     bool predict = true;
 
     bool mrpnn = true;
+    bool sh_approx = false;
+
+    bool showOnlyIndirect = false;
 
     bool pause = false;
 
@@ -427,7 +444,9 @@ private:
 			changed |= ImGui::Checkbox("MRPNN", &mrpnn);
 #else
             bool mustBeMRPNN = true;
-			ImGui::Checkbox("MRPNN", &mustBeMRPNN);
+            ImGui::Checkbox("MRPNN", &mustBeMRPNN);
+            changed |= ImGui::Checkbox("SH Approx", &sh_approx);
+            //changed |= ImGui::Checkbox("Show Indirect Only", &showOnlyIndirect);
 #endif
         }
 
@@ -1020,14 +1039,33 @@ void RunGUI(Camera& cam, VolumeRender& volume, float3 lightDir = normalize({ 1,1
             l.z = sin(aziangle) * cos(altiangle);
 
             auto start_time = std::chrono::system_clock::now();
+            VolumeRender::RenderType type = VolumeRender::RenderType::PT;
+            if (gui.predict) {
+                if (gui.sh_approx) {
+                    type = VolumeRender::RenderType::SHApprox;
+                }
+                else if (gui.mrpnn) {
+                    type = VolumeRender::RenderType::MRPNN;
+                }
+                else {
+                    type = VolumeRender::RenderType::RPNN;
+                }
+            }
 
             cam.Render(accum_buffer, histo_buffer_cuda, reinterpret_cast<unsigned int*>(p), int2{ width , height }, gui.frame, l, gui.lightColor, gui.alpha, gui.ms, gui.G, gui.toneType, 
-                gui.predict ? 
-                    (gui.mrpnn ? VolumeRender::RenderType::MRPNN : VolumeRender::RenderType::RPNN)
-                :
-                    VolumeRender::RenderType::PT
-                ,
+                type,
                 gui.denoise);
+
+            //std::size_t size = width * width;
+            //std::unique_ptr<float3[]> cpu_accum_buffer{ new float3[size] };
+            //cudaMemcpy(cpu_accum_buffer.get(), accum_buffer, sizeof(float3) * size, cudaMemcpyDeviceToHost);
+            //int cnt = 0;
+            //for (std::size_t i = 0; i < size; i++) {
+            //    if (dot(cpu_accum_buffer[i], cpu_accum_buffer[i]) <= 1e-5f) {
+            //        cnt++;
+            //    }
+            //}
+            //std::cout << cnt << "/" << size << "\n";
 
             auto finish_time = std::chrono::system_clock::now();
             float new_fps = 10000000.0f / (finish_time - start_time).count();
@@ -1093,3 +1131,4 @@ void RunGUI(Camera& cam, VolumeRender& volume, float3 lightDir = normalize({ 1,1
     printf("GUI has not been Compiled.\n");
 #endif // GUI
 }
+

@@ -6,6 +6,9 @@
 #include <random>
 #include <iomanip>
 
+#include "gen.cuh"
+#include <chrono>
+
 int main()
 {
 #if 1
@@ -42,7 +45,14 @@ int main()
     float3 lightDir = normalize(float3{ 0.34281, 0.70711, 0.61845 });
 #endif
 
+    InitDataGen();
+    v.UpdateHGLut(g);
+    std::cerr << "Here\n";
+    auto begin = std::chrono::steady_clock::now();
+    FillSHCoords(lightDir, lightColor, alpha, g);
+    auto end = std::chrono::steady_clock::now();
+    std::cerr << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
     RunGUI(cam, v, lightDir, lightColor, scatter, alpha, 512, g);
-
+    //TestIrradiance(v, lightDir, lightColor, scatter, alpha, 512, g);
     return 0;
 }
