@@ -5,6 +5,7 @@
 #endif
 
 #include "radiancePredict.cuh"
+#include <cassert>
 #define SH_ONLY_INDIRECT
 //#define SHOW_ONLY_INDIRECT
 
@@ -163,6 +164,53 @@ __device__ float4 GetSamplePoint(curandState* seed, float3 ori, float3 dir, floa
     }
 
     return make_float4(res, t);
+}
+
+__device__ float4 GetSamplePointWithPDF(curandState* seed, float3 ori, float3 dir, float alpha)
+{
+    dir = normalize(dir);
+
+    float dis = RayBoxOffset(ori, dir);
+    if (dis < 0)
+        return float4{};
+
+    float3 samplePosition = ori + dir * dis;
+    float3 rayDirection = dir;
+
+    float max_dis = RayBoxDistance(samplePosition, dir);
+    float SMax = maxDensity * alpha;
+    float t = 0;
+    float pdf = 0;
+
+    int loop_num = 0;
+    while (loop_num++ < 10000) {
+        float rk = Rand(seed);
+        t -= log(1 - rk) / SMax;
+
+        if (t > max_dis) {
+            return float4{};
+        }
+        else {
+            rk = Rand(seed);
+
+            float density = Density(samplePosition + (dir * t));
+            float S = density * alpha;
+            float ratio = S / SMax;
+
+            if (ratio > rk) {
+                pdf += log(ratio);
+                break;
+            }
+            pdf += log(1 - ratio);
+
+            if (density < 0) {
+                t -= density;
+            }
+        }
+    }
+    pdf += loop_num * log(SMax) - SMax * t;
+    printf("%f %f %f\n", pdf, loop_num * log(SMax), -SMax * t);
+    return make_float4((dir * t) + samplePosition, pdf);
 }
 
 __device__ float4 CalculateRadiance(float3 ori, float3 dir, float3 lightDir, float3 lightColor = { 1, 1, 1 }, float alpha = 1, int multiScatter = 1, float g = 0, int sampleNum = 1) {
@@ -640,12 +688,11 @@ __device__ float4 NNPredict(int idx, float3 ori, float3 dir, float3 lightDir, fl
     // TODO: 把这个改造一下，对多个delta tracking的estimation进行平均，再旋转相机的方向，就可以得到irradiance的估计。
     if (type == Type::SHApprox)
     {
-        // 得到delta tracking的下一个位置
-        float4 spoint = GetSamplePoint(&seed, ori, dir, alpha);
+        //// 得到delta tracking的下一个位置
+        float4 spoint = GetSamplePointWithPDF(&seed, ori, dir, alpha);
         float3 pos = make_float3(spoint);
         SampleBasis sb = { GetMatrixFromNormal(&seed, dir), GetMatrixFromNormal(&seed, lightDir) };
-
-        bool active = spoint.w > 0;
+        bool active = spoint.w != 0;
         int lane_id = __lane_id();
         int aint = active ? 1 : 0;
         aint = __ballot_sync(0xFFFFFFFFU, aint);
@@ -653,18 +700,22 @@ __device__ float4 NNPredict(int idx, float3 ori, float3 dir, float3 lightDir, fl
         if (!aint)
             return make_float4(SkyBox(dir), -1);
 
-        //float u = Rand(&seed);
-        float sigmaMaj = maxDensity * alpha;
-        //float t = -log(1 - u) / sigmaMaj;
         float t = length(pos - ori);
-        float pdf = sigmaMaj * exp(-sigmaMaj * t);
+
+        //float u = Rand(&seed);
+        //float sigmaMaj = maxDensity * alpha;
+        //float t = -log(1 - u) / sigmaMaj;
+        //float3 pos = ori + dir * t;
+        //float pdf = sigmaMaj * exp(-sigmaMaj * t);
+        //bool active = RayBoxOffset(pos, dir) > 0;
 
         float3 predict{};
         //printf("Here???");
         if (active > 0) {
             predict = RenderBySHSinglePoint(pos, dir);
             //auto offset = pos - ori;
-            //predict = predict * Tr(&seed, pos, dir, t, alpha) / pdf;
+            //printf("%f, %f\n", log(Tr(&seed, ori, dir, t, alpha)), spoint.w);
+            //predict = predict * Tr(&seed, ori, dir, t, alpha) / spoint.w;
             predict.x = predict.x < 0 ? 0 : (predict.x > 1 ? 1 : predict.x);
             predict.y = predict.y < 0 ? 0 : (predict.y > 1 ? 1 : predict.y);
             predict.z = predict.z < 0 ? 0 : (predict.z > 1 ? 1 : predict.z);
